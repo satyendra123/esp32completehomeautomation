@@ -1,0 +1,395 @@
+/* Step-1 in this code i have made a simple home automation based projects. in this esp32 i have made it to connect with the AP mode. so that i can connect it with my mobile and then setup the wifi credentials to connect with the wifi
+and this wifi credentials will be stored with the EEPROM memory so that after gets reset it will autoconnect with the same wifi network. and when i successfully connected then it will give me the new ip address. and when i enter that ip address in the browser then
+it will ask me to enter the username and password and when i enter the correct username and password then it will allow me to go inside the webpage where all my devices will be displayed. and when i press the toggle button then the esp32 default led will be toggled
+
+#include <WiFi.h>
+#include <WebServer.h>
+#include <EEPROM.h>
+
+#define EEPROM_SIZE 96  // Allocate 96 bytes for EEPROM storage
+#define SSID_ADDR 0      // Address to store SSID in EEPROM
+#define PASSWORD_ADDR 32 // Address to store password in EEPROM
+#define LED_PIN 2        // Default LED pin (built-in)
+
+const char* apSSID = "ESP32_Config_AP";  // Default AP SSID
+const char* apPassword = "12345678";     // Default AP Password
+
+// Username and password for login
+const char* username = "admin";
+const char* loginPassword = "password";
+
+// Create WebServer on port 80
+WebServer server(80);
+
+// HTML for the login page
+const char login_html[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head><title>Login</title></head>
+<body>
+  <h2>Login</h2>
+  <form action="/" method="POST">  <!-- Corrected form action -->
+    <label>Username: <input type="text" name="username"></label><br>
+    <label>Password: <input type="password" name="password"></label><br>
+    <input type="submit" value="Login">
+  </form>
+</body>
+</html>
+)rawliteral";
+
+// HTML for the LED control page with toggle button
+const char led_control_html[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head><title>LED Control</title></head>
+<body>
+  <h2>LED Control</h2>
+  <label>LED is %STATE%</label><br><br>
+  <form action="/toggleLED" method="POST">
+    <input type="submit" value="Toggle LED">
+  </form>
+  <br><a href="/wifisetup">Go to Wi-Fi Setup</a>
+</body>
+</html>
+)rawliteral";
+
+// HTML for the Wi-Fi setup page
+const char wifi_config_html[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head><title>Wi-Fi Setup</title></head>
+<body>
+  <h2>Enter Wi-Fi Credentials</h2>
+  <form action="/setWiFi" method="POST">
+    <label>SSID: <input type="text" name="ssid" required></label><br>
+    <label>Password: <input type="password" name="password" required></label><br>
+    <input type="submit" value="Connect">
+  </form>
+</body>
+</html>
+)rawliteral";
+
+// Store SSID and password in EEPROM
+void saveWiFiCredentials(const String& ssid, const String& password) {
+  EEPROM.begin(EEPROM_SIZE);
+  for (int i = 0; i < ssid.length(); ++i) {
+    EEPROM.write(SSID_ADDR + i, ssid[i]);
+  }
+  EEPROM.write(SSID_ADDR + ssid.length(), 0);
+  for (int i = 0; i < password.length(); ++i) {
+    EEPROM.write(PASSWORD_ADDR + i, password[i]);
+  }
+  EEPROM.write(PASSWORD_ADDR + password.length(), 0);
+  EEPROM.commit();
+  EEPROM.end();
+}
+
+// Load SSID and password from EEPROM
+String storedSSID;
+String storedPassword;
+
+void loadWiFiCredentials() {
+  EEPROM.begin(EEPROM_SIZE);
+  char ssid[32];
+  char password[64];
+
+  for (int i = 0; i < 32; ++i) {
+    ssid[i] = EEPROM.read(SSID_ADDR + i);
+  }
+  storedSSID = String(ssid);
+
+  for (int i = 0; i < 64; ++i) {
+    password[i] = EEPROM.read(PASSWORD_ADDR + i);
+  }
+  storedPassword = String(password);
+  EEPROM.end();
+}
+
+// LED State
+bool ledState = false;
+
+// Handle login page
+void handleLoginPage() {
+  if (server.method() == HTTP_GET) {
+    // Serve the login page HTML when accessed via GET
+    server.send(200, "text/html", login_html);
+  } else if (server.method() == HTTP_POST) {
+    // Check if form data contains username and password
+    if (server.hasArg("username") && server.hasArg("password")) {
+      String inputUsername = server.arg("username");
+      String inputPassword = server.arg("password");
+
+      if (inputUsername == username && inputPassword == loginPassword) {
+        server.sendHeader("Location", "/ledcontrol");  // Redirect after successful login
+        server.send(303);
+      } else {
+        server.send(403, "text/plain", "Incorrect username or password.");
+      }
+    } else {
+      server.send(400, "text/plain", "Bad Request - Missing username or password.");
+    }
+  }
+}
+
+// Handle LED control page
+void handleLEDControlPage() {
+  String html = led_control_html;
+  html.replace("%STATE%", ledState ? "ON" : "OFF");
+  server.send(200, "text/html", html);
+}
+
+// Handle LED toggle
+void handleToggleLED() {
+  ledState = !ledState;
+  digitalWrite(LED_PIN, ledState ? HIGH : LOW);
+  server.sendHeader("Location", "/ledcontrol");
+  server.send(303);
+}
+
+// Handle Wi-Fi configuration page
+void handleWiFiConfigPage() {
+  server.send(200, "text/html", wifi_config_html);
+}
+
+// Handle Wi-Fi setup submission
+void handleSetWiFi() {
+  if (server.hasArg("ssid") && server.hasArg("password")) {
+    String ssid = server.arg("ssid");
+    String password = server.arg("password");
+
+    saveWiFiCredentials(ssid, password);
+    WiFi.begin(ssid.c_str(), password.c_str());
+    delay(1000);
+    if (WiFi.status() == WL_CONNECTED) {
+      server.sendHeader("Location", "/ledcontrol");
+      server.send(303);
+    } else {
+      server.send(400, "text/html", "Connection failed. Please try again.");
+    }
+  } else {
+    server.send(400, "text/plain", "Bad Request");
+  }
+}
+
+// Check Wi-Fi connection and start AP if needed
+void checkWiFi() {
+  if (!storedSSID.isEmpty() && !storedPassword.isEmpty()) {
+    WiFi.begin(storedSSID.c_str(), storedPassword.c_str());
+    for (int i = 0; i < 20; i++) {
+      if (WiFi.status() == WL_CONNECTED) {
+        Serial.print("Connected to Wi-Fi. IP: ");
+        Serial.println(WiFi.localIP());
+        return;
+      }
+      delay(500);
+    }
+  }
+
+  Serial.println("Starting AP mode...");
+  WiFi.softAP(apSSID, apPassword);
+  Serial.print("AP IP: ");
+  Serial.println(WiFi.softAPIP());
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  // Initialize LED pin
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, LOW);
+
+  // Load Wi-Fi credentials from EEPROM
+  loadWiFiCredentials();
+
+  // Check Wi-Fi and start AP if needed
+  checkWiFi();
+
+  // Define web routes
+  server.on("/", handleLoginPage);          // Login page
+  server.on("/ledcontrol", handleLEDControlPage);  // LED control page
+  server.on("/toggleLED", handleToggleLED);  // Toggle LED action
+  server.on("/wifisetup", handleWiFiConfigPage);  // Wi-Fi setup page
+  server.on("/setWiFi", HTTP_POST, handleSetWiFi);  // Handle Wi-Fi credentials submission
+
+  // Start web server
+  server.begin();
+}
+
+void loop() {
+  server.handleClient();
+}
+
+
+/* Step-2 in the above code everythng will be written into the esp32 only. but in this i will make the react js application and through that application i will control the each devices. and i am also making the react native app to control the 
+home appliances
+#include <WiFi.h>
+#include <WebServer.h>
+#include <EEPROM.h>
+#include <ArduinoJson.h>
+
+#define EEPROM_SIZE 96  // Allocate 96 bytes for EEPROM storage
+#define SSID_ADDR 0      // Address to store SSID in EEPROM
+#define PASSWORD_ADDR 32 // Address to store password in EEPROM
+#define LED_PIN 2        // Default LED pin (built-in)
+
+const char* apSSID = "ESP32_Config_AP";  // Default AP SSID
+const char* apPassword = "12345678";     // Default AP Password
+
+// Username and password for login
+const char* username = "admin";
+const char* loginPassword = "password";
+
+// Create WebServer on port 80
+WebServer server(80);
+
+// Store SSID and password in EEPROM
+void saveWiFiCredentials(const String& ssid, const String& password) {
+  EEPROM.begin(EEPROM_SIZE);
+  for (int i = 0; i < ssid.length(); ++i) {
+    EEPROM.write(SSID_ADDR + i, ssid[i]);
+  }
+  EEPROM.write(SSID_ADDR + ssid.length(), 0);
+  for (int i = 0; i < password.length(); ++i) {
+    EEPROM.write(PASSWORD_ADDR + i, password[i]);
+  }
+  EEPROM.write(PASSWORD_ADDR + password.length(), 0);
+  EEPROM.commit();
+  EEPROM.end();
+}
+
+// Load SSID and password from EEPROM
+String storedSSID;
+String storedPassword;
+
+void loadWiFiCredentials() {
+  EEPROM.begin(EEPROM_SIZE);
+  char ssid[32];
+  char password[64];
+
+  for (int i = 0; i < 32; ++i) {
+    ssid[i] = EEPROM.read(SSID_ADDR + i);
+  }
+  storedSSID = String(ssid);
+
+  for (int i = 0; i < 64; ++i) {
+    password[i] = EEPROM.read(PASSWORD_ADDR + i);
+  }
+  storedPassword = String(password);
+  EEPROM.end();
+}
+
+// LED State
+bool ledState = false;
+
+// API to handle login
+void handleLogin() {
+  if (server.hasArg("username") && server.hasArg("password")) {
+    String inputUsername = server.arg("username");
+    String inputPassword = server.arg("password");
+
+    if (inputUsername == username && inputPassword == loginPassword) {
+      StaticJsonDocument<200> jsonResponse;
+      jsonResponse["message"] = "Login successful";
+      String response;
+      serializeJson(jsonResponse, response);
+      server.send(200, "application/json", response);
+    } else {
+      server.send(403, "application/json", "{\"message\": \"Incorrect username or password.\"}");
+    }
+  } else {
+    server.send(400, "application/json", "{\"message\": \"Missing username or password.\"}");
+  }
+}
+
+// API to get the LED state
+void handleGetLEDState() {
+  StaticJsonDocument<200> jsonResponse;
+  jsonResponse["ledState"] = ledState ? "ON" : "OFF";
+  String response;
+  serializeJson(jsonResponse, response);
+  server.send(200, "application/json", response);
+}
+
+// API to toggle LED
+void handleToggleLED() {
+  ledState = !ledState;
+  digitalWrite(LED_PIN, ledState ? HIGH : LOW);
+  StaticJsonDocument<200> jsonResponse;
+  jsonResponse["message"] = "LED toggled";
+  jsonResponse["ledState"] = ledState ? "ON" : "OFF";
+  String response;
+  serializeJson(jsonResponse, response);
+  server.send(200, "application/json", response);
+}
+
+// API to set Wi-Fi credentials
+void handleSetWiFi() {
+  if (server.hasArg("ssid") && server.hasArg("password")) {
+    String ssid = server.arg("ssid");
+    String password = server.arg("password");
+
+    saveWiFiCredentials(ssid, password);
+    WiFi.begin(ssid.c_str(), password.c_str());
+    delay(1000);
+    if (WiFi.status() == WL_CONNECTED) {
+      StaticJsonDocument<200> jsonResponse;
+      jsonResponse["message"] = "Wi-Fi connected successfully";
+      jsonResponse["ip"] = WiFi.localIP().toString();
+      String response;
+      serializeJson(jsonResponse, response);
+      server.send(200, "application/json", response);
+    } else {
+      server.send(400, "application/json", "{\"message\": \"Connection failed. Please try again.\"}");
+    }
+  } else {
+    server.send(400, "application/json", "{\"message\": \"Missing SSID or password.\"}");
+  }
+}
+
+// Check Wi-Fi connection and start AP if needed
+void checkWiFi() {
+  if (!storedSSID.isEmpty() && !storedPassword.isEmpty()) {
+    WiFi.begin(storedSSID.c_str(), storedPassword.c_str());
+    for (int i = 0; i < 20; i++) {
+      if (WiFi.status() == WL_CONNECTED) {
+        Serial.print("Connected to Wi-Fi. IP: ");
+        Serial.println(WiFi.localIP());
+        return;
+      }
+      delay(500);
+    }
+  }
+
+  Serial.println("Starting AP mode...");
+  WiFi.softAP(apSSID, apPassword);
+  Serial.print("AP IP: ");
+  Serial.println(WiFi.softAPIP());
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  // Initialize LED pin
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, LOW);
+
+  // Load Wi-Fi credentials from EEPROM
+  loadWiFiCredentials();
+
+  // Check Wi-Fi and start AP if needed
+  checkWiFi();
+
+  // Define API routes
+  server.on("/login", HTTP_POST, handleLogin);         // Login
+  server.on("/getLEDState", HTTP_GET, handleGetLEDState);   // Get LED state
+  server.on("/toggleLED", HTTP_POST, handleToggleLED);   // Toggle LED
+  server.on("/setWiFi", HTTP_POST, handleSetWiFi);     // Set Wi-Fi
+
+  // Start web server
+  server.begin();
+}
+
+void loop() {
+  server.handleClient();
+}
+*/
