@@ -1,0 +1,365 @@
+/*
+#include <WiFi.h>
+#include <WebServer.h>
+
+// Replace with your network credentials
+const char* ssid = "Airtel_zerotouch";      // Your WiFi SSID
+const char* password = "Airtel@123"; // Your WiFi password
+
+// Create a WebServer object on port 80
+WebServer server(80);
+
+// Define the GPIO pin for the onboard LED (default GPIO2)
+const int ledPin = 2; 
+
+// HTML content stored in PROGMEM
+const char index_html[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ESP32 LED Control</title>
+  <style>
+    body { font-family: Arial; text-align: center; }
+    h1 { color: #444; }
+    .button {
+      padding: 10px 20px;
+      font-size: 20px;
+      color: white;
+      background-color: #4CAF50;
+      border: none;
+      border-radius: 5px;
+      margin: 10px;
+      cursor: pointer;
+    }
+    .button.off {
+      background-color: #f44336;
+    }
+  </style>
+</head>
+<body>
+  <h1>ESP32 LED Control</h1>
+  <button id="ledBtn" class="button" onclick="toggleLED()">Turn On</button>
+  <script>
+    function toggleLED() {
+      fetch('/toggleLED')
+        .then(response => response.text())
+        .then(state => {
+          const btn = document.getElementById('ledBtn');
+          btn.textContent = state === '1' ? 'Turn Off' : 'Turn On';
+          btn.classList.toggle('off', state === '1');
+        });
+    }
+  </script>
+</body>
+</html>
+)rawliteral";
+
+// Handle root request
+void handleRoot() {
+  server.send(200, "text/html", index_html);
+}
+
+// Handle LED toggle request
+void handleToggleLED() {
+  int state = !digitalRead(ledPin);
+  digitalWrite(ledPin, state);
+  server.send(200, "text/plain", String(state));
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  // Initialize the LED pin as an output
+  pinMode(ledPin, OUTPUT);
+  digitalWrite(ledPin, LOW); // Initially turn off the LED
+
+  // Connect to Wi-Fi
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.println("Connecting to WiFi...");
+  }
+  Serial.println("Connected to WiFi");
+  Serial.println(WiFi.localIP());
+
+  // Start the server and define routes
+  server.on("/", handleRoot);
+  server.on("/toggleLED", handleToggleLED);
+  server.begin();
+  Serial.println("HTTP server started");
+}
+
+void loop() {
+  server.handleClient();
+}
+
+*/
+
+/*
+#include <WiFi.h>
+#include <WebServer.h>
+
+// Replace with your network credentials
+const char* ssid = "Airtel_zerotouch";      // Your WiFi SSID
+const char* password = "Airtel@123";  // Your WiFi password
+
+// Create a WebServer object on port 80
+WebServer server(80);
+
+// Define the GPIO pin for the onboard LED (default GPIO2)
+const int ledPin = 2;
+
+// Set PWM channel parameters
+const int pwmChannel = 0;
+const int pwmFreq = 5000;     // Frequency of PWM (in Hz)
+const int pwmResolution = 8;  // 8-bit resolution for 0-255 brightness levels
+
+// HTML content stored in PROGMEM
+const char index_html[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ESP32 LED Brightness Control</title>
+  <style>
+    body { font-family: Arial; text-align: center; margin-top: 50px; }
+    h1 { color: #444; }
+    .slider {
+      width: 300px;
+    }
+  </style>
+</head>
+<body>
+  <h1>ESP32 LED Brightness Control</h1>
+  <input type="range" min="0" max="255" value="0" class="slider" id="ledSlider" oninput="updateBrightness(this.value)">
+  <p>Brightness: <span id="brightnessValue">0</span></p>
+
+  <script>
+    function updateBrightness(value) {
+      document.getElementById("brightnessValue").textContent = value;
+      fetch('/setBrightness?value=' + value)
+        .then(response => response.text())
+        .then(data => console.log("Brightness set to: " + data));
+    }
+  </script>
+</body>
+</html>
+)rawliteral";
+
+// Handle root request (serve HTML page)
+void handleRoot() {
+  server.send(200, "text/html", index_html);
+}
+
+// Handle brightness adjustment request
+void handleSetBrightness() {
+  if (server.hasArg("value")) {
+    String brightnessValue = server.arg("value");
+    int brightness = brightnessValue.toInt();  // Convert to integer
+    ledcWrite(pwmChannel, brightness);         // Set PWM duty cycle
+    server.send(200, "text/plain", brightnessValue);  // Return brightness value
+  } else {
+    server.send(400, "text/plain", "Bad Request");
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  // Initialize the LED pin with PWM
+  ledcSetup(pwmChannel, pwmFreq, pwmResolution); // Set up PWM channel
+  ledcAttachPin(ledPin, pwmChannel);             // Attach GPIO2 to the PWM channel
+  ledcWrite(pwmChannel, 0);                      // Initialize LED to OFF (brightness = 0)
+
+  // Connect to Wi-Fi
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.println("Connecting to WiFi...");
+  }
+  Serial.println("Connected to WiFi");
+  Serial.println(WiFi.localIP());
+
+  // Define server routes
+  server.on("/", handleRoot);
+  server.on("/setBrightness", handleSetBrightness);
+
+  // Start the server
+  server.begin();
+  Serial.println("HTTP server started");
+}
+
+void loop() {
+  server.handleClient(); // Handle client requests
+}
+*/
+
+/*
+#include <WiFi.h>
+#include <WebServer.h>
+
+// Replace with your network credentials
+const char* ssid = "Airtel_zerotouch";      // Your WiFi SSID
+const char* password = "Airtel@123";  // Your WiFi password
+
+// Create a WebServer object on port 80
+WebServer server(80);
+
+// Credentials for login
+const char* loginUsername = "admin";
+const char* loginPassword = "admin123";
+
+// Variables for login status
+bool isLoggedIn = false;   // Simple flag for login status
+
+// Define the GPIO pin for the onboard LED (default GPIO2)
+const int ledPin = 2;
+
+// Set PWM channel parameters
+const int pwmChannel = 0;
+const int pwmFreq = 5000;     // Frequency of PWM (in Hz)
+const int pwmResolution = 8;  // 8-bit resolution for 0-255 brightness levels
+
+// HTML content for login page stored in PROGMEM
+const char login_html[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Login</title>
+  <style>
+    body { font-family: Arial; text-align: center; margin-top: 50px; }
+    form { display: inline-block; }
+    input { margin: 10px; padding: 10px; width: 250px; }
+  </style>
+</head>
+<body>
+  <h2>Please Login</h2>
+  <form action="/login" method="POST">
+    <input type="text" name="username" placeholder="Username" required><br>
+    <input type="password" name="password" placeholder="Password" required><br>
+    <input type="submit" value="Login">
+  </form>
+</body>
+</html>
+)rawliteral";
+
+// HTML content for main page stored in PROGMEM
+const char main_page_html[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ESP32 LED Brightness Control</title>
+  <style>
+    body { font-family: Arial; text-align: center; margin-top: 50px; }
+    h1 { color: #444; }
+    .slider {
+      width: 300px;
+    }
+    .logout {
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h1>ESP32 LED Brightness Control</h1>
+  <input type="range" min="0" max="255" value="0" class="slider" id="ledSlider" oninput="updateBrightness(this.value)">
+  <p>Brightness: <span id="brightnessValue">0</span></p>
+  <div class="logout">
+    <a href="/logout">Logout</a>
+  </div>
+
+  <script>
+    function updateBrightness(value) {
+      document.getElementById("brightnessValue").textContent = value;
+      fetch('/setBrightness?value=' + value)
+        .then(response => response.text())
+        .then(data => console.log("Brightness set to: " + data));
+    }
+  </script>
+</body>
+</html>
+)rawliteral";
+
+// Handle root request (serve login page or main page based on login status)
+void handleRoot() {
+  if (isLoggedIn) {
+    server.send(200, "text/html", main_page_html);
+  } else {
+    server.send(200, "text/html", login_html);
+  }
+}
+
+// Handle login POST request
+void handleLogin() {
+  if (server.hasArg("username") && server.hasArg("password")) {
+    String username = server.arg("username");
+    String password = server.arg("password");
+
+    if (username == loginUsername && password == loginPassword) {
+      isLoggedIn = true;  // Set login status to true
+      server.sendHeader("Location", "/");  // Redirect to the main page
+      server.send(303);
+    } else {
+      server.send(401, "text/plain", "Incorrect username or password.");
+    }
+  } else {
+    server.send(400, "text/plain", "Bad Request");
+  }
+}
+
+// Handle logout request
+void handleLogout() {
+  isLoggedIn = false;  // Clear login status
+  server.sendHeader("Location", "/");  // Redirect to the login page
+  server.send(303);
+}
+
+// Handle brightness adjustment request
+void handleSetBrightness() {
+  if (isLoggedIn) {
+    if (server.hasArg("value")) {
+      String brightnessValue = server.arg("value");
+      int brightness = brightnessValue.toInt();  // Convert to integer
+      ledcWrite(pwmChannel, brightness);         // Set PWM duty cycle
+      server.send(200, "text/plain", brightnessValue);  // Return brightness value
+    } else {
+      server.send(400, "text/plain", "Bad Request");
+    }
+  } else {
+    server.sendHeader("Location", "/");  // Redirect to login page if not logged in
+    server.send(303);
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  // Initialize the LED pin with PWM
+  ledcSetup(pwmChannel, pwmFreq, pwmResolution); // Set up PWM channel
+  ledcAttachPin(ledPin, pwmChannel);             // Attach GPIO2 to the PWM channel
+  ledcWrite(pwmChannel, 0);                      // Initialize LED to OFF (brightness = 0)
+
+  // Connect to Wi-Fi
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.println("Connecting to WiFi...");
+  }
+  Serial.println("Connected to WiFi");
+  Serial.println(WiFi.localIP());
+
+  // Define server routes
+  server.on("/", handleRoot);
+  server.on("/login", HTTP_POST, handleLogin);  // Login handling
+  server.on("/logout", handleLogout);           // Logout handling
+  server.on("/setBrightness", handleSetBrightness);  // Brightness adjustment
+
+  // Start the server
+  server.begin();
+  Serial.println("HTTP server started");
+}
+
+void loop() {
+  server.handleClient(); // Handle client requests
+}
+*/
+
